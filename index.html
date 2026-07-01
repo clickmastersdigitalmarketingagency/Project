@@ -1,0 +1,1451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowBoard — Kanban</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<style>
+  :root {
+    --bg: #0f0f0f;
+    --bg-raised: #1a1a1a;
+    --bg-card: #222222;
+    --bg-hover: #2a2a2a;
+    --fg: #f0ece4;
+    --fg-muted: #8a8580;
+    --accent: #e8a849;
+    --accent-dim: rgba(232,168,73,0.15);
+    --danger: #e05252;
+    --success: #4ecb71;
+    --info: #5ba4f5;     
+    --purple: #b07ce8;
+    --border: #2e2e2e;
+    --border-light: #3a3a3a;
+    --column-todo: #e8a849;
+    --column-progress: #5ba4f5;
+    --column-review: #b07ce8;
+    --column-done: #4ecb71;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    min-height: 100vh;
+    overflow-x: auto;
+  }
+  h1, h2, h3, h4 { font-family: 'Space Grotesk', sans-serif; }
+
+  /* Background atmosphere */
+  body::before {
+    content: '';
+    position: fixed;
+    top: -30%; left: -10%;
+    width: 60%; height: 60%;
+    background: radial-gradient(circle, rgba(232,168,73,0.04) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    bottom: -20%; right: -10%;
+    width: 50%; height: 50%;
+    background: radial-gradient(circle, rgba(91,164,245,0.03) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--fg-muted); }
+
+  /* Column styling */
+  .kanban-column {
+    min-width: 320px;
+    max-width: 320px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 140px);
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  }
+  .kanban-column.drag-over {
+    border-color: var(--accent);
+    box-shadow: 0 0 30px rgba(232,168,73,0.1), inset 0 0 20px rgba(232,168,73,0.03);
+  }
+
+  .column-header {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg-raised);
+    border-radius: 16px 16px 0 0;
+    z-index: 2;
+  }
+
+  .column-cards {
+    padding: 12px;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 60px;
+  }
+
+  /* Card styling */
+  .kanban-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    cursor: grab;
+    transition: all 0.2s ease;
+    position: relative;
+    user-select: none;
+  }
+  .kanban-card:hover {
+    border-color: var(--border-light);
+    background: var(--bg-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  }
+  .kanban-card:active { cursor: grabbing; }
+  .kanban-card.dragging {
+    opacity: 0.4;
+    transform: rotate(2deg) scale(0.97);
+  }
+  .kanban-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 12px; bottom: 12px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+  }
+  .kanban-card[data-priority="high"]::before { background: var(--danger); }
+  .kanban-card[data-priority="medium"]::before { background: var(--accent); }
+  .kanban-card[data-priority="low"]::before { background: var(--success); }
+
+  /* Tags */
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .tag-design { background: rgba(176,124,232,0.15); color: var(--purple); }
+  .tag-dev { background: rgba(91,164,245,0.15); color: var(--info); }
+  .tag-bug { background: rgba(224,82,82,0.15); color: var(--danger); }
+  .tag-feature { background: rgba(78,203,113,0.15); color: var(--success); }
+  .tag-docs { background: rgba(232,168,73,0.15); color: var(--accent); }
+  .tag-urgent { background: rgba(224,82,82,0.2); color: #f07070; }
+
+  /* Priority badges */
+  .priority-badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .priority-high { background: rgba(224,82,82,0.15); color: var(--danger); }
+  .priority-medium { background: rgba(232,168,73,0.15); color: var(--accent); }
+  .priority-low { background: rgba(78,203,113,0.15); color: var(--success); }
+
+  /* Avatar */
+  .avatar {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+  }
+
+  /* Modal overlay */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(8px);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+  .modal-overlay.active { opacity: 1; pointer-events: all; }
+  .modal-content {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 32px;
+    width: 480px;
+    max-width: 90vw;
+    max-height: 90vh;
+    overflow-y: auto;
+    transform: translateY(20px) scale(0.97);
+    transition: transform 0.3s ease;
+  }
+  .modal-overlay.active .modal-content { transform: translateY(0) scale(1); }
+
+  /* Inputs */
+  .input-field {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    color: var(--fg);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    width: 100%;
+    transition: border-color 0.2s;
+    outline: none;
+  }
+  .input-field:focus { border-color: var(--accent); }
+  .input-field::placeholder { color: var(--fg-muted); }
+  textarea.input-field { resize: vertical; min-height: 80px; }
+
+  select.input-field {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8580' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px;
+  }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 10px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #0f0f0f;
+  }
+  .btn-primary:hover { background: #f0b55a; transform: translateY(-1px); }
+  .btn-ghost {
+    background: transparent;
+    color: var(--fg-muted);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { border-color: var(--fg-muted); color: var(--fg); }
+  .btn-danger {
+    background: rgba(224,82,82,0.15);
+    color: var(--danger);
+  }
+  .btn-danger:hover { background: rgba(224,82,82,0.25); }
+  .btn-sm { padding: 6px 12px; font-size: 12px; border-radius: 8px; }
+
+  /* Checkbox */
+  .check-list-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .check-list-item:last-child { border-bottom: none; }
+  .custom-check {
+    width: 18px; height: 18px;
+    border: 2px solid var(--border-light);
+    border-radius: 5px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s;
+  }
+  .custom-check.checked {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .custom-check.checked i { display: block; }
+  .custom-check i { display: none; color: #0f0f0f; font-size: 10px; }
+
+  /* Toast */
+  .toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .toast {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 20px;
+    font-size: 14px;
+    color: var(--fg);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    animation: toastIn 0.3s ease, toastOut 0.3s ease 2.5s forwards;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes toastOut { to { opacity: 0; transform: translateY(10px); } }
+
+  /* Filter pills */
+  .filter-pill {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--fg-muted);
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .filter-pill:hover { border-color: var(--fg-muted); color: var(--fg); }
+  .filter-pill.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* Drop placeholder */
+  .drop-placeholder {
+    border: 2px dashed var(--border-light);
+    border-radius: 12px;
+    min-height: 60px;
+    background: rgba(232,168,73,0.03);
+    transition: all 0.2s;
+  }
+
+  /* Card detail modal */
+  .detail-section { margin-bottom: 20px; }
+  .detail-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--fg-muted);
+    margin-bottom: 8px;
+  }
+
+  /* Column add button */
+  .add-card-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px;
+    margin: 0 12px 12px;
+    border-radius: 10px;
+    border: 1px dashed var(--border);
+    background: transparent;
+    color: var(--fg-muted);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+  }
+  .add-card-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  /* Card count */
+  .card-count {
+    background: var(--bg-card);
+    color: var(--fg-muted);
+    font-size: 12px;
+    font-weight: 700;
+    width: 26px; height: 26px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Stat card */
+  .stat-card {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    min-width: 140px;
+  }
+  .stat-value {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .stat-label {
+    font-size: 12px;
+    color: var(--fg-muted);
+    margin-top: 4px;
+  }
+
+  /* Progress bar */
+  .progress-bar {
+    height: 4px;
+    background: var(--bg-card);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.5s ease;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .kanban-column { min-width: 280px; max-width: 280px; }
+    .stat-card { min-width: 120px; }
+  }
+
+  /* Subtle floating animation for empty state */
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+  }
+  .empty-icon { animation: float 3s ease-in-out infinite; }
+</style>
+</head>
+<body>
+
+<!-- Toast container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- Header -->
+<header style="position:sticky;top:0;z-index:50;background:rgba(15,15,15,0.85);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);">
+  <div style="max-width:1600px;margin:0 auto;padding:16px 24px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+      <!-- Logo -->
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:36px;height:36px;border-radius:10px;background:var(--accent);display:flex;align-items:center;justify-content:center;">
+          <i class="fas fa-layer-group" style="color:#0f0f0f;font-size:16px;"></i>
+        </div>
+        <div>
+          <h1 style="font-size:20px;font-weight:700;letter-spacing:-0.5px;">FlowBoard</h1>
+          <p style="font-size:11px;color:var(--fg-muted);margin-top:-2px;">Project Kanban</p>
+        </div>
+      </div>
+
+      <!-- Search -->
+      <div style="position:relative;flex:1;max-width:360px;min-width:200px;">
+        <i class="fas fa-search" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--fg-muted);font-size:13px;"></i>
+        <input type="text" id="searchInput" class="input-field" placeholder="Search cards..." style="padding-left:38px;">
+      </div>
+
+      <!-- Actions -->
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button class="btn btn-ghost btn-sm" onclick="openFilterPanel()" title="Filters">
+          <i class="fas fa-filter"></i> Filters
+        </button>
+        <button class="btn btn-primary btn-sm" onclick="openAddCardModal('todo')">
+          <i class="fas fa-plus"></i> New Task
+        </button>
+      </div>
+    </div>
+
+    <!-- Filter bar -->
+    <div id="filterBar" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-size:12px;color:var(--fg-muted);font-weight:600;margin-right:4px;">Priority:</span>
+        <button class="filter-pill active" data-filter="priority" data-value="all" onclick="setFilter(this)">All</button>
+        <button class="filter-pill" data-filter="priority" data-value="high" onclick="setFilter(this)">
+          <i class="fas fa-circle" style="font-size:6px;color:var(--danger);margin-right:4px;"></i>High
+        </button>
+        <button class="filter-pill" data-filter="priority" data-value="medium" onclick="setFilter(this)">
+          <i class="fas fa-circle" style="font-size:6px;color:var(--accent);margin-right:4px;"></i>Medium
+        </button>
+        <button class="filter-pill" data-filter="priority" data-value="low" onclick="setFilter(this)">
+          <i class="fas fa-circle" style="font-size:6px;color:var(--success);margin-right:4px;"></i>Low
+        </button>
+        <span style="width:1px;height:20px;background:var(--border);margin:0 8px;"></span>
+        <span style="font-size:12px;color:var(--fg-muted);font-weight:600;margin-right:4px;">Tag:</span>
+        <button class="filter-pill active" data-filter="tag" data-value="all" onclick="setFilter(this)">All</button>
+        <button class="filter-pill" data-filter="tag" data-value="design" onclick="setFilter(this)">Design</button>
+        <button class="filter-pill" data-filter="tag" data-value="dev" onclick="setFilter(this)">Dev</button>
+        <button class="filter-pill" data-filter="tag" data-value="bug" onclick="setFilter(this)">Bug</button>
+        <button class="filter-pill" data-filter="tag" data-value="feature" onclick="setFilter(this)">Feature</button>
+        <button class="filter-pill" data-filter="tag" data-value="docs" onclick="setFilter(this)">Docs</button>
+        <button class="filter-pill" data-filter="tag" data-value="urgent" onclick="setFilter(this)">Urgent</button>
+        <span style="width:1px;height:20px;background:var(--border);margin:0 8px;"></span>
+        <button class="btn btn-ghost btn-sm" onclick="clearFilters()" style="font-size:11px;">
+          <i class="fas fa-times"></i> Clear
+        </button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- Stats Row -->
+<div style="max-width:1600px;margin:0 auto;padding:20px 24px 0;">
+  <div style="display:flex;gap:12px;flex-wrap:wrap;" id="statsRow">
+    <div class="stat-card">
+      <div class="stat-value" id="statTotal" style="color:var(--fg);">0</div>
+      <div class="stat-label">Total Tasks</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statTodo" style="color:var(--column-todo);">0</div>
+      <div class="stat-label">To Do</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statProgress" style="color:var(--column-progress);">0</div>
+      <div class="stat-label">In Progress</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statReview" style="color:var(--column-review);">0</div>
+      <div class="stat-label">In Review</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statDone" style="color:var(--column-done);">0</div>
+      <div class="stat-label">Done</div>
+    </div>
+    <div class="stat-card" style="flex:1;min-width:200px;display:flex;flex-direction:column;justify-content:center;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span class="stat-label" style="margin:0;">Completion</span>
+        <span style="font-family:'Space Grotesk';font-weight:700;font-size:14px;color:var(--success);" id="statPercent">0%</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill" style="width:0%;background:var(--success);"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Kanban Board -->
+<main style="max-width:1600px;margin:0 auto;padding:20px 24px 40px;">
+  <div style="display:flex;gap:16px;overflow-x:auto;padding-bottom:20px;" id="kanbanBoard">
+
+    <!-- To Do Column -->
+    <div class="kanban-column" data-column="todo"
+         ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+      <div class="column-header">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:10px;height:10px;border-radius:50%;background:var(--column-todo);box-shadow:0 0 10px rgba(232,168,73,0.4);"></div>
+            <h3 style="font-size:15px;font-weight:700;">To Do</h3>
+            <span class="card-count" id="count-todo">0</span>
+          </div>
+          <button style="background:none;border:none;color:var(--fg-muted);cursor:pointer;padding:4px 8px;border-radius:6px;transition:all 0.2s;" onmouseover="this.style.color='var(--fg)';this.style.background='var(--bg-card)'" onmouseout="this.style.color='var(--fg-muted)';this.style.background='none'" onclick="openAddCardModal('todo')">
+            <i class="fas fa-plus" style="font-size:13px;"></i>
+          </button>
+        </div>
+      </div>
+      <div class="column-cards" id="cards-todo"></div>
+      <button class="add-card-btn" onclick="openAddCardModal('todo')">
+        <i class="fas fa-plus"></i> Add task
+      </button>
+    </div>
+
+    <!-- In Progress Column -->
+    <div class="kanban-column" data-column="progress"
+         ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+      <div class="column-header">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:10px;height:10px;border-radius:50%;background:var(--column-progress);box-shadow:0 0 10px rgba(91,164,245,0.4);"></div>
+            <h3 style="font-size:15px;font-weight:700;">In Progress</h3>
+            <span class="card-count" id="count-progress">0</span>
+          </div>
+          <button style="background:none;border:none;color:var(--fg-muted);cursor:pointer;padding:4px 8px;border-radius:6px;transition:all 0.2s;" onmouseover="this.style.color='var(--fg)';this.style.background='var(--bg-card)'" onmouseout="this.style.color='var(--fg-muted)';this.style.background='none'" onclick="openAddCardModal('progress')">
+            <i class="fas fa-plus" style="font-size:13px;"></i>
+          </button>
+        </div>
+      </div>
+      <div class="column-cards" id="cards-progress"></div>
+      <button class="add-card-btn" onclick="openAddCardModal('progress')">
+        <i class="fas fa-plus"></i> Add task
+      </button>
+    </div>
+
+    <!-- In Review Column -->
+    <div class="kanban-column" data-column="review"
+         ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+      <div class="column-header">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:10px;height:10px;border-radius:50%;background:var(--column-review);box-shadow:0 0 10px rgba(176,124,232,0.4);"></div>
+            <h3 style="font-size:15px;font-weight:700;">In Review</h3>
+            <span class="card-count" id="count-review">0</span>
+          </div>
+          <button style="background:none;border:none;color:var(--fg-muted);cursor:pointer;padding:4px 8px;border-radius:6px;transition:all 0.2s;" onmouseover="this.style.color='var(--fg)';this.style.background='var(--bg-card)'" onmouseout="this.style.color='var(--fg-muted)';this.style.background='none'" onclick="openAddCardModal('review')">
+            <i class="fas fa-plus" style="font-size:13px;"></i>
+          </button>
+        </div>
+      </div>
+      <div class="column-cards" id="cards-review"></div>
+      <button class="add-card-btn" onclick="openAddCardModal('review')">
+        <i class="fas fa-plus"></i> Add task
+      </button>
+    </div>
+
+    <!-- Done Column -->
+    <div class="kanban-column" data-column="done"
+         ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+      <div class="column-header">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:10px;height:10px;border-radius:50%;background:var(--column-done);box-shadow:0 0 10px rgba(78,203,113,0.4);"></div>
+            <h3 style="font-size:15px;font-weight:700;">Done</h3>
+            <span class="card-count" id="count-done">0</span>
+          </div>
+          <button style="background:none;border:none;color:var(--fg-muted);cursor:pointer;padding:4px 8px;border-radius:6px;transition:all 0.2s;" onmouseover="this.style.color='var(--fg)';this.style.background='var(--bg-card)'" onmouseout="this.style.color='var(--fg-muted)';this.style.background='none'" onclick="openAddCardModal('done')">
+            <i class="fas fa-plus" style="font-size:13px;"></i>
+          </button>
+        </div>
+      </div>
+      <div class="column-cards" id="cards-done"></div>
+      <button class="add-card-btn" onclick="openAddCardModal('done')">
+        <i class="fas fa-plus"></i> Add task
+      </button>
+    </div>
+
+  </div>
+</main>
+
+<!-- Add/Edit Card Modal -->
+<div class="modal-overlay" id="cardModal">
+  <div class="modal-content">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+      <h2 style="font-size:20px;font-weight:700;" id="modalTitle">New Task</h2>
+      <button style="background:none;border:none;color:var(--fg-muted);cursor:pointer;font-size:18px;padding:4px;" onclick="closeModal('cardModal')">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    <form id="cardForm" onsubmit="handleCardSubmit(event)">
+      <input type="hidden" id="cardId">
+      <input type="hidden" id="cardColumn">
+
+      <div style="margin-bottom:16px;">
+        <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Title *</label>
+        <input type="text" id="cardTitle" class="input-field" placeholder="What needs to be done?" required>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Description</label>
+        <textarea id="cardDesc" class="input-field" placeholder="Add more details..."></textarea>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Priority</label>
+          <select id="cardPriority" class="input-field">
+            <option value="low">Low</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Tag</label>
+          <select id="cardTag" class="input-field">
+            <option value="dev">Development</option>
+            <option value="design">Design</option>
+            <option value="bug">Bug</option>
+            <option value="feature">Feature</option>
+            <option value="docs">Documentation</option>
+            <option value="urgent">Urgent</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Assignee</label>
+          <select id="cardAssignee" class="input-field">
+            <option value="">Unassigned</option>
+            <option value="Alex">Alex</option>
+            <option value="Jordan">Jordan</option>
+            <option value="Sam">Sam</option>
+            <option value="Taylor">Taylor</option>
+            <option value="Morgan">Morgan</option>
+            <option value="Casey">Casey</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:6px;">Due Date</label>
+          <input type="date" id="cardDue" class="input-field">
+        </div>
+      </div>
+
+      <!-- Checklist -->
+      <div style="margin-bottom:20px;">
+        <label style="font-size:12px;font-weight:600;color:var(--fg-muted);display:block;margin-bottom:8px;">Checklist</label>
+        <div id="checklistContainer"></div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <input type="text" id="newCheckItem" class="input-field" placeholder="Add checklist item..." style="flex:1;">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addCheckItem()">
+            <i class="fas fa-plus"></i>
+          </button>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;gap:10px;">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('cardModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="modalSubmitBtn">Create Task</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Card Detail Modal -->
+<div class="modal-overlay" id="detailModal">
+  <div class="modal-content" style="width:560px;">
+    <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:20px;">
+      <div style="flex:1;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span class="tag" id="detailTag"></span>
+          <span class="priority-badge" id="detailPriority"></span>
+        </div>
+        <h2 style="font-size:22px;font-weight:700;line-height:1.3;" id="detailTitle"></h2>
+      </div>
+      <button style="background:none;border:none;color:var(--fg-muted);cursor:pointer;font-size:18px;padding:4px;flex-shrink:0;margin-left:16px;" onclick="closeModal('detailModal')">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <div class="detail-section" id="detailDescSection">
+      <div class="detail-label">Description</div>
+      <p style="font-size:14px;line-height:1.7;color:var(--fg);opacity:0.85;" id="detailDesc"></p>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+      <div class="detail-section" style="margin-bottom:0;">
+        <div class="detail-label">Assignee</div>
+        <div style="display:flex;align-items:center;gap:8px;" id="detailAssignee"></div>
+      </div>
+      <div class="detail-section" style="margin-bottom:0;">
+        <div class="detail-label">Due Date</div>
+        <div style="font-size:14px;" id="detailDue"></div>
+      </div>
+    </div>
+
+    <div class="detail-section" id="detailCheckSection" style="display:none;">
+      <div class="detail-label">Checklist</div>
+      <div id="detailChecklist"></div>
+      <div style="margin-top:8px;">
+        <div class="progress-bar" style="height:6px;">
+          <div class="progress-fill" id="detailCheckProgress" style="background:var(--accent);"></div>
+        </div>
+        <p style="font-size:11px;color:var(--fg-muted);margin-top:4px;" id="detailCheckLabel"></p>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:24px;padding-top:16px;border-top:1px solid var(--border);">
+      <button class="btn btn-danger btn-sm" id="detailDeleteBtn">
+        <i class="fas fa-trash-alt"></i> Delete
+      </button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost btn-sm" id="detailEditBtn">
+          <i class="fas fa-pen"></i> Edit
+        </button>
+        <button class="btn btn-ghost btn-sm" id="detailMoveLeftBtn" title="Move left">
+          <i class="fas fa-arrow-left"></i>
+        </button>
+        <button class="btn btn-ghost btn-sm" id="detailMoveRightBtn" title="Move right">
+          <i class="fas fa-arrow-right"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Delete Modal -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal-content" style="width:400px;text-align:center;">
+    <div style="width:56px;height:56px;border-radius:50%;background:rgba(224,82,82,0.15);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
+      <i class="fas fa-trash-alt" style="color:var(--danger);font-size:22px;"></i>
+    </div>
+    <h3 style="font-size:18px;font-weight:700;margin-bottom:8px;">Delete this task?</h3>
+    <p style="font-size:14px;color:var(--fg-muted);margin-bottom:24px;">This action cannot be undone. The task will be permanently removed.</p>
+    <div style="display:flex;justify-content:center;gap:10px;">
+      <button class="btn btn-ghost" onclick="closeModal('confirmModal')">Cancel</button>
+      <button class="btn btn-danger" id="confirmDeleteBtn" style="background:var(--danger);color:#fff;">
+        <i class="fas fa-trash-alt"></i> Delete
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Data & State
+// ============================================================
+const COLUMNS = ['todo', 'progress', 'review', 'done'];
+const COLUMN_NAMES = { todo: 'To Do', progress: 'In Progress', review: 'In Review', done: 'Done' };
+const TAG_CLASSES = { design: 'tag-design', dev: 'tag-dev', bug: 'tag-bug', feature: 'tag-feature', docs: 'tag-docs', urgent: 'tag-urgent' };
+const TAG_LABELS = { design: 'Design', dev: 'Dev', bug: 'Bug', feature: 'Feature', docs: 'Docs', urgent: 'Urgent' };
+const AVATAR_COLORS = {
+  'Alex': '#e8a849', 'Jordan': '#5ba4f5', 'Sam': '#b07ce8',
+  'Taylor': '#4ecb71', 'Morgan': '#e05252', 'Casey': '#e88b9c'
+};
+
+// Default sample data
+const DEFAULT_DATA = [
+  {
+    id: 'c1', column: 'todo', title: 'Design new landing page hero section',
+    description: 'Create a visually striking hero with animated gradient background, bold typography, and a clear CTA. Must be responsive.',
+    priority: 'high', tag: 'design', assignee: 'Alex', dueDate: '2025-02-15',
+    checklist: [{ text: 'Wireframe layout', done: true }, { text: 'High-fidelity mockup', done: false }, { text: 'Animations prototype', done: false }]
+  },
+  {
+    id: 'c2', column: 'todo', title: 'Set up CI/CD pipeline',
+    description: 'Configure GitHub Actions for automated testing, linting, and deployment to staging environment.',
+    priority: 'medium', tag: 'dev', assignee: 'Sam', dueDate: '2025-02-20',
+    checklist: []
+  },
+  {
+    id: 'c3', column: 'todo', title: 'Write API documentation',
+    description: 'Document all REST endpoints with request/response examples using OpenAPI spec format.',
+    priority: 'low', tag: 'docs', assignee: 'Morgan', dueDate: '',
+    checklist: [{ text: 'Auth endpoints', done: false }, { text: 'User endpoints', done: false }, { text: 'Payment endpoints', done: false }]
+  },
+  {
+    id: 'c4', column: 'progress', title: 'Fix login session timeout bug',
+    description: 'Users are being logged out after 5 minutes regardless of activity. Session token refresh is not working properly.',
+    priority: 'high', tag: 'bug', assignee: 'Jordan', dueDate: '2025-02-10',
+    checklist: [{ text: 'Reproduce the issue', done: true }, { text: 'Fix token refresh logic', done: true }, { text: 'Write regression test', done: false }, { text: 'Deploy fix', done: false }]
+  },
+  {
+    id: 'c5', column: 'progress', title: 'Implement dark mode toggle',
+    description: 'Add a theme switcher that persists user preference in localStorage and respects system preference on first visit.',
+    priority: 'medium', tag: 'feature', assignee: 'Taylor', dueDate: '2025-02-18',
+    checklist: [{ text: 'CSS variables setup', done: true }, { text: 'Toggle component', done: false }, { text: 'System preference detection', done: false }]
+  },
+  {
+    id: 'c6', column: 'progress', title: 'Optimize image loading',
+    description: 'Implement lazy loading, WebP conversion, and responsive srcset for all product images.',
+    priority: 'medium', tag: 'dev', assignee: 'Sam', dueDate: '2025-02-22',
+    checklist: []
+  },
+  {
+    id: 'c7', column: 'review', title: 'User profile page redesign',
+    description: 'New profile layout with avatar upload, activity feed, and settings tabs. Needs final review before deployment.',
+    priority: 'medium', tag: 'design', assignee: 'Alex', dueDate: '2025-02-12',
+    checklist: [{ text: 'Visual review', done: true }, { text: 'Responsive check', done: true }, { text: 'Accessibility audit', done: false }]
+  },
+  {
+    id: 'c8', column: 'review', title: 'Add two-factor authentication',
+    description: 'TOTP-based 2FA with QR code setup, backup codes generation, and recovery flow.',
+    priority: 'high', tag: 'feature', assignee: 'Jordan', dueDate: '2025-02-14',
+    checklist: [{ text: 'QR code generation', done: true }, { text: 'Verification flow', done: true }, { text: 'Backup codes', done: true }, { text: 'Security review', done: false }]
+  },
+  {
+    id: 'c9', column: 'done', title: 'Set up error tracking with Sentry',
+    description: 'Integrated Sentry SDK for frontend error tracking with source maps and release tracking.',
+    priority: 'low', tag: 'dev', assignee: 'Casey', dueDate: '2025-02-05',
+    checklist: [{ text: 'Install SDK', done: true }, { text: 'Configure source maps', done: true }, { text: 'Test error capture', done: true }]
+  },
+  {
+    id: 'c10', column: 'done', title: 'Migrate database to PostgreSQL',
+    description: 'Successfully migrated from MongoDB to PostgreSQL with zero data loss. All queries optimized.',
+    priority: 'high', tag: 'dev', assignee: 'Sam', dueDate: '2025-02-03',
+    checklist: [{ text: 'Schema design', done: true }, { text: 'Data migration script', done: true }, { text: 'Query optimization', done: true }, { text: 'Load testing', done: true }]
+  },
+  {
+    id: 'c11', column: 'done', title: 'Fix checkout button not working on mobile',
+    description: 'The checkout CTA was overlapping with the sticky footer on iOS Safari. Fixed with z-index and padding adjustment.',
+    priority: 'urgent', tag: 'bug', assignee: 'Taylor', dueDate: '2025-02-01',
+    checklist: [{ text: 'Identify root cause', done: true }, { text: 'Apply fix', done: true }, { text: 'Test on devices', done: true }]
+  },
+  {
+    id: 'c12', column: 'todo', title: 'Create onboarding flow for new users',
+    description: 'Build a 3-step onboarding wizard with tooltips, progress indicator, and skip option.',
+    priority: 'medium', tag: 'feature', assignee: 'Casey', dueDate: '2025-02-25',
+    checklist: [{ text: 'Step 1: Welcome', done: false }, { text: 'Step 2: Profile setup', done: false }, { text: 'Step 3: First action', done: false }]
+  }
+];
+
+// Load from localStorage or use defaults
+let cards = [];
+let activeFilters = { priority: 'all', tag: 'all' };
+let searchQuery = '';
+let tempChecklist = [];
+let draggedCardId = null;
+let deleteTargetId = null;
+
+function loadData() {
+  const saved = localStorage.getItem('flowboard_cards');
+  if (saved) {
+    try { cards = JSON.parse(saved); } catch (e) { cards = JSON.parse(JSON.stringify(DEFAULT_DATA)); }
+  } else {
+    cards = JSON.parse(JSON.stringify(DEFAULT_DATA));
+  }
+}
+
+function saveData() {
+  localStorage.setItem('flowboard_cards', JSON.stringify(cards));
+}
+
+function generateId() {
+  return 'c' + Date.now() + Math.random().toString(36).substr(2, 5);
+}
+
+// ============================================================
+// Rendering
+// ============================================================
+function renderBoard() {
+  const filtered = getFilteredCards();
+  COLUMNS.forEach(col => {
+    const container = document.getElementById('cards-' + col);
+    const colCards = filtered.filter(c => c.column === col);
+    const countEl = document.getElementById('count-' + col);
+    countEl.textContent = colCards.length;
+
+    if (colCards.length === 0) {
+      container.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px;color:var(--fg-muted);">
+          <div class="empty-icon" style="font-size:32px;margin-bottom:12px;opacity:0.3;">
+            <i class="fas fa-inbox"></i>
+          </div>
+          <p style="font-size:13px;opacity:0.5;">No tasks here</p>
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = colCards.map(card => renderCard(card)).join('');
+  });
+  updateStats();
+}
+
+function renderCard(card) {
+  const checkDone = card.checklist ? card.checklist.filter(c => c.done).length : 0;
+  const checkTotal = card.checklist ? card.checklist.length : 0;
+  const checkPercent = checkTotal > 0 ? Math.round((checkDone / checkTotal) * 100) : 0;
+
+  let dueHTML = '';
+  if (card.dueDate) {
+    const due = new Date(card.dueDate);
+    const now = new Date();
+    now.setHours(0,0,0,0);
+    const isOverdue = due < now && card.column !== 'done';
+    const isToday = due.toDateString() === now.toDateString();
+    const dueStr = due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const color = isOverdue ? 'var(--danger)' : isToday ? 'var(--accent)' : 'var(--fg-muted)';
+    const icon = isOverdue ? 'fa-exclamation-circle' : 'fa-calendar';
+    dueHTML = `<span style="font-size:11px;color:${color};display:flex;align-items:center;gap:4px;">
+      <i class="fas ${icon}" style="font-size:10px;"></i>${dueStr}</span>`;
+  }
+
+  let assigneeHTML = '';
+  if (card.assignee) {
+    const color = AVATAR_COLORS[card.assignee] || '#666';
+    assigneeHTML = `<div class="avatar" style="background:${color};" title="${card.assignee}">${card.assignee[0]}</div>`;
+  }
+
+  let checkHTML = '';
+  if (checkTotal > 0) {
+    checkHTML = `<div style="margin-top:10px;">
+      <div class="progress-bar" style="height:3px;margin-bottom:4px;">
+        <div class="progress-fill" style="width:${checkPercent}%;background:var(--accent);"></div>
+      </div>
+      <span style="font-size:10px;color:var(--fg-muted);">${checkDone}/${checkTotal} checklist</span>
+    </div>`;
+  }
+
+  // Truncate description for card view
+  let descHTML = '';
+  if (card.description) {
+    const short = card.description.length > 80 ? card.description.substring(0, 80) + '...' : card.description;
+    descHTML = `<p style="font-size:13px;color:var(--fg-muted);line-height:1.5;margin-bottom:10px;">${short}</p>`;
+  }
+
+  return `
+    <div class="kanban-card" data-id="${card.id}" data-priority="${card.priority}" draggable="true"
+         ondragstart="handleDragStart(event)" ondragend="handleDragEnd(event)" onclick="openDetailModal('${card.id}')">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <span class="tag ${TAG_CLASSES[card.tag] || 'tag-dev'}">${TAG_LABELS[card.tag] || card.tag}</span>
+        <span class="priority-badge priority-${card.priority}">${card.priority}</span>
+      </div>
+      <h4 style="font-size:14px;font-weight:600;line-height:1.4;margin-bottom:4px;">${card.title}</h4>
+      ${descHTML}
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${assigneeHTML}
+          ${dueHTML}
+        </div>
+        <button style="background:none;border:none;color:var(--fg-muted);cursor:pointer;padding:4px 6px;border-radius:4px;transition:color 0.2s;font-size:12px;"
+                onmouseover="this.style.color='var(--fg)'" onmouseout="this.style.color='var(--fg-muted)'"
+                onclick="event.stopPropagation();openDetailModal('${card.id}')" title="View details">
+          <i class="fas fa-expand-alt"></i>
+        </button>
+      </div>
+      ${checkHTML}
+    </div>`;
+}
+
+function getFilteredCards() {
+  return cards.filter(card => {
+    // Search filter
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const match = card.title.toLowerCase().includes(q) ||
+                    (card.description && card.description.toLowerCase().includes(q)) ||
+                    (card.assignee && card.assignee.toLowerCase().includes(q)) ||
+                    (card.tag && card.tag.toLowerCase().includes(q));
+      if (!match) return false;
+    }
+    // Priority filter
+    if (activeFilters.priority !== 'all' && card.priority !== activeFilters.priority) return false;
+    // Tag filter
+    if (activeFilters.tag !== 'all' && card.tag !== activeFilters.tag) return false;
+    return true;
+  });
+}
+
+function updateStats() {
+  const total = cards.length;
+  const todo = cards.filter(c => c.column === 'todo').length;
+  const progress = cards.filter(c => c.column === 'progress').length;
+  const review = cards.filter(c => c.column === 'review').length;
+  const done = cards.filter(c => c.column === 'done').length;
+  const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  document.getElementById('statTotal').textContent = total;
+  document.getElementById('statTodo').textContent = todo;
+  document.getElementById('statProgress').textContent = progress;
+  document.getElementById('statReview').textContent = review;
+  document.getElementById('statDone').textContent = done;
+  document.getElementById('statPercent').textContent = percent + '%';
+  document.getElementById('progressFill').style.width = percent + '%';
+}
+
+// ============================================================
+// Drag & Drop
+// ============================================================
+function handleDragStart(e) {
+  draggedCardId = e.target.dataset.id;
+  e.target.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  // Needed for Firefox
+  e.dataTransfer.setData('text/plain', draggedCardId);
+}
+
+function handleDragEnd(e) {
+  e.target.classList.remove('dragging');
+  draggedCardId = null;
+  // Remove all drag-over states
+  document.querySelectorAll('.kanban-column').forEach(col => col.classList.remove('drag-over'));
+  document.querySelectorAll('.drop-placeholder').forEach(p => p.remove());
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const column = e.currentTarget;
+  column.classList.add('drag-over');
+
+  // Add placeholder if not exists
+  const cardsContainer = column.querySelector('.column-cards');
+  if (!cardsContainer.querySelector('.drop-placeholder')) {
+    const placeholder = document.createElement('div');
+    placeholder.className = 'drop-placeholder';
+    cardsContainer.appendChild(placeholder);
+  }
+}
+
+function handleDragLeave(e) {
+  // Only remove if actually leaving the column
+  const column = e.currentTarget;
+  if (!column.contains(e.relatedTarget)) {
+    column.classList.remove('drag-over');
+    const placeholder = column.querySelector('.drop-placeholder');
+    if (placeholder) placeholder.remove();
+  }
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  const column = e.currentTarget;
+  column.classList.remove('drag-over');
+  const placeholder = column.querySelector('.drop-placeholder');
+  if (placeholder) placeholder.remove();
+
+  if (!draggedCardId) return;
+  const newColumn = column.dataset.column;
+  const card = cards.find(c => c.id === draggedCardId);
+  if (!card) return;
+
+  const oldColumn = card.column;
+  if (oldColumn === newColumn) return;
+
+  card.column = newColumn;
+  saveData();
+  renderBoard();
+
+  if (newColumn === 'done') {
+    showToast('Task completed!', 'fa-check-circle', 'var(--success)');
+  } else {
+    showToast(`Moved to ${COLUMN_NAMES[newColumn]}`, 'fa-arrows-alt', 'var(--info)');
+  }
+}
+
+// ============================================================
+// Modals
+// ============================================================
+function openModal(id) {
+  document.getElementById(id).classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('active');
+  document.body.style.overflow = '';
+}
+
+// Add/Edit card modal
+function openAddCardModal(column) {
+  document.getElementById('modalTitle').textContent = 'New Task';
+  document.getElementById('modalSubmitBtn').textContent = 'Create Task';
+  document.getElementById('cardId').value = '';
+  document.getElementById('cardColumn').value = column;
+  document.getElementById('cardTitle').value = '';
+  document.getElementById('cardDesc').value = '';
+  document.getElementById('cardPriority').value = 'medium';
+  document.getElementById('cardTag').value = 'dev';
+  document.getElementById('cardAssignee').value = '';
+  document.getElementById('cardDue').value = '';
+  tempChecklist = [];
+  renderChecklistEditor();
+  openModal('cardModal');
+  setTimeout(() => document.getElementById('cardTitle').focus(), 200);
+}
+
+function openEditCardModal(cardId) {
+  const card = cards.find(c => c.id === cardId);
+  if (!card) return;
+  closeModal('detailModal');
+
+  document.getElementById('modalTitle').textContent = 'Edit Task';
+  document.getElementById('modalSubmitBtn').textContent = 'Save Changes';
+  document.getElementById('cardId').value = card.id;
+  document.getElementById('cardColumn').value = card.column;
+  document.getElementById('cardTitle').value = card.title;
+  document.getElementById('cardDesc').value = card.description || '';
+  document.getElementById('cardPriority').value = card.priority;
+  document.getElementById('cardTag').value = card.tag;
+  document.getElementById('cardAssignee').value = card.assignee || '';
+  document.getElementById('cardDue').value = card.dueDate || '';
+  tempChecklist = card.checklist ? JSON.parse(JSON.stringify(card.checklist)) : [];
+  renderChecklistEditor();
+  openModal('cardModal');
+}
+
+function handleCardSubmit(e) {
+  e.preventDefault();
+  const id = document.getElementById('cardId').value;
+  const column = document.getElementById('cardColumn').value;
+  const title = document.getElementById('cardTitle').value.trim();
+  const desc = document.getElementById('cardDesc').value.trim();
+  const priority = document.getElementById('cardPriority').value;
+  const tag = document.getElementById('cardTag').value;
+  const assignee = document.getElementById('cardAssignee').value;
+  const dueDate = document.getElementById('cardDue').value;
+
+  if (!title) return;
+
+  if (id) {
+    // Edit existing
+    const card = cards.find(c => c.id === id);
+    if (card) {
+      card.title = title;
+      card.description = desc;
+      card.priority = priority;
+      card.tag = tag;
+      card.assignee = assignee;
+      card.dueDate = dueDate;
+      card.checklist = tempChecklist.length > 0 ? tempChecklist : [];
+      showToast('Task updated', 'fa-pen', 'var(--accent)');
+    }
+  } else {
+    // Create new
+    cards.push({
+      id: generateId(),
+      column, title,
+      description: desc,
+      priority, tag, assignee, dueDate,
+      checklist: tempChecklist.length > 0 ? tempChecklist : []
+    });
+    showToast('Task created', 'fa-plus-circle', 'var(--success)');
+  }
+
+  saveData();
+  renderBoard();
+  closeModal('cardModal');
+}
+
+// Checklist editor
+function renderChecklistEditor() {
+  const container = document.getElementById('checklistContainer');
+  if (tempChecklist.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = tempChecklist.map((item, i) => `
+    <div class="check-list-item">
+      <div class="custom-check ${item.done ? 'checked' : ''}" onclick="toggleTempCheck(${i})">
+        <i class="fas fa-check"></i>
+      </div>
+      <span style="flex:1;${item.done ? 'text-decoration:line-through;opacity:0.5;' : ''}">${item.text}</span>
+      <button type="button" style="background:none;border:none;color:var(--fg-muted);cursor:pointer;padding:2px 4px;font-size:11px;" onclick="removeTempCheck(${i})">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+  `).join('');
+}
+
+function addCheckItem() {
+  const input = document.getElementById('newCheckItem');
+  const text = input.value.trim();
+  if (!text) return;
+  tempChecklist.push({ text, done: false });
+  input.value = '';
+  renderChecklistEditor();
+}
+
+function toggleTempCheck(i) {
+  tempChecklist[i].done = !tempChecklist[i].done;
+  renderChecklistEditor();
+}
+
+function removeTempCheck(i) {
+  tempChecklist.splice(i, 1);
+  renderChecklistEditor();
+}
+
+// Allow Enter key for checklist
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('newCheckItem').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); addCheckItem(); }
+  });
+});
+
+// Detail modal
+function openDetailModal(cardId) {
+  const card = cards.find(c => c.id === cardId);
+  if (!card) return;
+
+  document.getElementById('detailTitle').textContent = card.title;
+  document.getElementById('detailTag').className = 'tag ' + (TAG_CLASSES[card.tag] || 'tag-dev');
+  document.getElementById('detailTag').textContent = TAG_LABELS[card.tag] || card.tag;
+  document.getElementById('detailPriority').className = 'priority-badge priority-' + card.priority;
+  document.getElementById('detailPriority').textContent = card.priority;
+
+  // Description
+  const descSection = document.getElementById('detailDescSection');
+  if (card.description) {
+    descSection.style.display = 'block';
+    document.getElementById('detailDesc').textContent = card.description;
+  } else {
+    descSection.style.display = 'none';
+  }
+
+  // Assignee
+  const assigneeEl = document.getElementById('detailAssignee');
+  if (card.assignee) {
+    const color = AVATAR_COLORS[card.assignee] || '#666';
+    assigneeEl.innerHTML = `<div class="avatar" style="background:${color};width:30px;height:30px;font-size:13px;">${card.assignee[0]}</div>
+      <span style="font-size:14px;">${card.assignee}</span>`;
+  } else {
+    assigneeEl.innerHTML = '<span style="font-size:14px;color:var(--fg-muted);">Unassigned</span>';
+  }
+
+  // Due date
+  const dueEl = document.getElementById('detailDue');
+  if (card.dueDate) {
+    const due = new Date(card.dueDate);
+    const now = new Date(); now.setHours(0,0,0,0);
+    const isOverdue = due < now && card.column !== 'done';
+    const color = isOverdue ? 'var(--danger)' : 'var(--fg)';
+    dueEl.innerHTML = `<span style="color:${color};font-size:14px;">
+      <i class="fas fa-calendar" style="margin-right:6px;font-size:12px;"></i>${due.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+      ${isOverdue ? ' <span style="font-size:11px;color:var(--danger);font-weight:600;">(Overdue)</span>' : ''}
+    </span>`;
+  } else {
+    dueEl.innerHTML = '<span style="font-size:14px;color:var(--fg-muted);">No due date</span>';
+  }
+
+  // Checklist
+  const checkSection = document.getElementById('detailCheckSection');
+  if (card.checklist && card.checklist.length > 0) {
+    checkSection.style.display = 'block';
+    const done = card.checklist.filter(c => c.done).length;
+    const total = card.checklist.length;
+    const pct = Math.round((done / total) * 100);
+    document.getElementById('detailChecklist').innerHTML = card.checklist.map((item, i) => `
+      <div class="check-list-item" style="cursor:pointer;" onclick="toggleDetailCheck('${card.id}', ${i})">
+        <div class="custom-check ${item.done ? 'checked' : ''}">
+          <i class="fas fa-check"></i>
+        </div>
+        <span style="flex:1;${item.done ? 'text-decoration:line-through;opacity:0.5;' : ''}">${item.text}</span>
+      </div>
+    `).join('');
+    document.getElementById('detailCheckProgress').style.width = pct + '%';
+    document.getElementById('detailCheckLabel').textContent = `${done} of ${total} completed`;
+  } else {
+    checkSection.style.display = 'none';
+  }
+
+  // Buttons
+  document.getElementById('detailDeleteBtn').onclick = () => confirmDelete(card.id);
+  document.getElementById('detailEditBtn').onclick = () => openEditCardModal(card.id);
+
+  const colIdx = COLUMNS.indexOf(card.column);
+  const leftBtn = document.getElementById('detailMoveLeftBtn');
+  const rightBtn = document.getElementById('detailMoveRightBtn');
+  leftBtn.style.display = colIdx > 0 ? '' : 'none';
+  rightBtn.style.display = colIdx < COLUMNS.length - 1 ? '' : 'none';
+  leftBtn.onclick = () => moveCard(card.id, COLUMNS[colIdx - 1]);
+  rightBtn.onclick = () => moveCard(card.id, COLUMNS[colIdx + 1]);
+
+  openModal('detailModal');
+}
+
+function toggleDetailCheck(cardId, checkIdx) {
+  const card = cards.find(c => c.id === cardId);
+  if (!card || !card.checklist) return;
+  card.checklist[checkIdx].done = !card.checklist[checkIdx].done;
+  saveData();
+  renderBoard();
+  openDetailModal(cardId);
+}
+
+function moveCard(cardId, newColumn) {
+  const card = cards.find(c => c.id === cardId);
+  if (!card) return;
+  card.column = newColumn;
+  saveData();
+  renderBoard();
+  closeModal('detailModal');
+  if (newColumn === 'done') {
+    showToast('Task completed!', 'fa-check-circle', 'var(--success)');
+  } else {
+    showToast(`Moved to ${COLUMN_NAMES[newColumn]}`, 'fa-arrows-alt', 'var(--info)');
+  }
+}
+
+// Delete confirmation
+function confirmDelete(cardId) {
+  deleteTargetId = cardId;
+  closeModal('detailModal');
+  openModal('confirmModal');
+  document.getElementById('confirmDeleteBtn').onclick = () => {
+    cards = cards.filter(c => c.id !== deleteTargetId);
+    saveData();
+    renderBoard();
+    closeModal('confirmModal');
+    showToast('Task deleted', 'fa-trash-alt', 'var(--danger)');
+    deleteTargetId = null;
+  };
+}
+
+// ============================================================
+// Filters
+// ============================================================
+function openFilterPanel() {
+  const bar = document.getElementById('filterBar');
+  bar.style.display = bar.style.display === 'none' ? 'block' : 'none';
+}
+
+function setFilter(el) {
+  const type = el.dataset.filter;
+  const value = el.dataset.value;
+  activeFilters[type] = value;
+
+  // Update pill states
+  document.querySelectorAll(`.filter-pill[data-filter="${type}"]`).forEach(pill => {
+    pill.classList.toggle('active', pill.dataset.value === value);
+  });
+
+  renderBoard();
+}
+
+function clearFilters() {
+  activeFilters = { priority: 'all', tag: 'all' };
+  document.querySelectorAll('.filter-pill').forEach(pill => {
+    pill.classList.toggle('active', pill.dataset.value === 'all');
+  });
+  renderBoard();
+}
+
+// Search
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('searchInput').addEventListener('input', e => {
+    searchQuery = e.target.value;
+    renderBoard();
+  });
+});
+
+// ============================================================
+// Toast
+// ============================================================
+function showToast(message, icon, color) {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.innerHTML = `<i class="fas ${icon || 'fa-info-circle'}" style="color:${color || 'var(--accent)'};"></i> ${message}`;
+  container.appendChild(toast);
+  setTimeout(() => { if (toast.parentNode) toast.remove(); }, 3000);
+}
+
+// ============================================================
+// Close modals on overlay click or Escape
+// ============================================================
+document.addEventListener('click', e => {
+  if (e.target.classList.contains('modal-overlay') && e.target.classList.contains('active')) {
+    e.target.classList.remove('active');
+    document.body.style.overflow = '';
+  }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay.active').forEach(m => {
+      m.classList.remove('active');
+    });
+    document.body.style.overflow = '';
+  }
+});
+
+// ============================================================
+// Initialize
+// ============================================================
+loadData();
+renderBoard();
+</script>
+
+</body>
+</html>
